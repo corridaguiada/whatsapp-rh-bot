@@ -98,6 +98,7 @@ _Digite 0 para voltar ao menu._`,
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -111,7 +112,6 @@ const client = new Client({
   }
 });
 
-// Mostra o QR code no terminal para você escanear
 client.on('qr', (qr) => {
   console.log('\n📱 Escaneie o QR code abaixo com seu WhatsApp:\n');
   qrcode.generate(qr, { small: true });
@@ -121,13 +121,19 @@ client.on('ready', () => {
   console.log('\n✅ Bot conectado e rodando! Pode enviar uma mensagem para testar.\n');
 });
 
+client.on('auth_failure', () => {
+  console.log('❌ Falha na autenticação. Reiniciando...');
+});
+
+client.on('disconnected', (reason) => {
+  console.log('⚠️ Bot desconectado:', reason);
+  client.initialize();
+});
+
 client.on('message', async (msg) => {
-  // Ignora mensagens de grupos
   if (msg.from.includes('@g.us')) return;
 
   const texto = msg.body.trim().toLowerCase();
-
-  // Palavras que abrem o menu
   const abreMenu = ['oi', 'olá', 'ola', 'oi!', 'olá!', 'menu', 'ajuda', 'help', '0', 'inicio', 'início'];
 
   if (abreMenu.includes(texto)) {
@@ -135,13 +141,11 @@ client.on('message', async (msg) => {
     return;
   }
 
-  // Verifica se digitou um número do menu
   if (RESPOSTAS[texto]) {
     await msg.reply(RESPOSTAS[texto]);
     return;
   }
 
-  // Resposta padrão para mensagens não reconhecidas
   await msg.reply(`Não entendi sua mensagem. 😅\n\nDigite *oi* para ver o menu de opções do RH.`);
 });
 
