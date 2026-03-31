@@ -1,4 +1,6 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const makeWASocket = require('@whiskeysockets/baileys').default;
+const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
 
 // ============================================================
@@ -36,7 +38,7 @@ O pagamento é realizado todo dia *5* de cada mês. Se cair em fim de semana ou 
 
 📌 Seu holerite fica disponível no portal RH Online até o dia 3 do mês seguinte.
 
-Em caso de dúvidas sobre descontos ou valores, entre em contato com o RH pelo e-mail: rh@empresa.com.br
+Em caso de dúvidas, entre em contato: rh@empresa.com.br
 
 _Digite 0 para voltar ao menu._`,
 
@@ -44,9 +46,9 @@ _Digite 0 para voltar ao menu._`,
 
 A empresa oferece plano de saúde com coparticipação. A mensalidade é descontada em folha.
 
-📌 Dependentes podem ser incluídos mediante solicitação ao RH em até *30 dias* após a contratação ou nascimento/casamento.
+📌 Dependentes podem ser incluídos em até *30 dias* após contratação ou nascimento/casamento.
 
-Para segunda via do cartão ou dúvidas sobre cobertura, acesse o site da operadora ou ligue: *0800 000 0000*
+Para dúvidas sobre cobertura, ligue: *0800 000 0000*
 
 _Digite 0 para voltar ao menu._`,
 
@@ -56,17 +58,17 @@ O vale-transporte é creditado no último dia útil do mês para uso no mês seg
 
 📌 O desconto em folha é de *6%* do salário bruto ou o valor total do benefício, o que for menor.
 
-Para alterar sua linha de transporte ou valor, envie a solicitação ao RH até o dia *20* do mês atual.
+Para alterar sua linha, envie solicitação ao RH até o dia *20* do mês.
 
 _Digite 0 para voltar ao menu._`,
 
   '5': `⏱️ *Banco de Horas*
 
-As horas extras realizadas são registradas no banco de horas e podem ser compensadas em folgas.
+As horas extras são registradas no banco de horas e podem ser compensadas em folgas.
 
-📌 O prazo para compensação é de *6 meses* a partir do registro da hora extra.
+📌 O prazo para compensação é de *6 meses* a partir do registro.
 
-Consulte seu saldo de banco de horas no ponto eletrônico ou solicite ao RH.
+Consulte seu saldo no ponto eletrônico ou solicite ao RH.
 
 _Digite 0 para voltar ao menu._`,
 
@@ -74,79 +76,90 @@ _Digite 0 para voltar ao menu._`,
 
 O aviso prévio é de *30 dias*, podendo ser trabalhado ou indenizado.
 
-📌 Em caso de demissão sem justa causa, você tem direito a: saldo de salário, férias proporcionais + 1/3, 13º proporcional, FGTS + multa de 40% e seguro-desemprego (se elegível).
+📌 Direitos em demissão sem justa causa: saldo de salário, férias proporcionais + 1/3, 13º proporcional, FGTS + multa de 40% e seguro-desemprego.
 
-Para iniciar o processo, agende uma reunião com o RH pelo e-mail: rh@empresa.com.br
+Para iniciar o processo: rh@empresa.com.br
 
 _Digite 0 para voltar ao menu._`,
 
   '7': `🕐 *Ponto Eletrônico*
 
-O registro de ponto deve ser feito no início e fim de cada turno, e também no intervalo de almoço.
+O registro de ponto deve ser feito no início e fim de cada turno e no intervalo de almoço.
 
 📌 Esqueceu de bater o ponto? Solicite a correção ao seu gestor em até *48 horas*.
 
-Para acesso ao sistema de ponto, use seu CPF como login e sua matrícula como senha inicial.
+Login: seu CPF | Senha inicial: sua matrícula.
 
 _Digite 0 para voltar ao menu._`,
 };
 
 // ============================================================
-//  CONFIGURAÇÃO DO BOT — não precisa mexer aqui
+//  LÓGICA DO BOT — não precisa mexer aqui
 // ============================================================
 
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process',
-      '--disable-gpu'
-    ],
-  }
-});
+const abreMenu = ['oi', 'olá', 'ola', 'oi!', 'olá!', 'menu', 'ajuda', 'help', '0', 'inicio', 'início'];
 
-client.on('qr', (qr) => {
-  console.log('\n📱 Escaneie o QR code abaixo com seu WhatsApp:\n');
-  qrcode.generate(qr, { small: true });
-});
+async function conectar() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
-client.on('ready', () => {
-  console.log('\n✅ Bot conectado e rodando! Pode enviar uma mensagem para testar.\n');
-});
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true,
+  });
 
-client.on('auth_failure', () => {
-  console.log('❌ Falha na autenticação. Reiniciando...');
-});
+  sock.ev.on('creds.update', saveCreds);
 
-client.on('disconnected', (reason) => {
-  console.log('⚠️ Bot desconectado:', reason);
-  client.initialize();
-});
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect, qr } = update;
 
-client.on('message', async (msg) => {
-  if (msg.from.includes('@g.us')) return;
+    if (qr) {
+      console.log('\n📱 Escaneie o QR code acima com seu WhatsApp!\n');
+    }
 
-  const texto = msg.body.trim().toLowerCase();
-  const abreMenu = ['oi', 'olá', 'ola', 'oi!', 'olá!', 'menu', 'ajuda', 'help', '0', 'inicio', 'início'];
+    if (connection === 'close') {
+      const deveReconectar = new Boom(lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+      if (deveReconectar) {
+        console.log('🔄 Reconectando...');
+        conectar();
+      } else {
+        console.log('❌ Desconectado. Delete a pasta auth_info e reinicie.');
+      }
+    }
 
-  if (abreMenu.includes(texto)) {
-    await msg.reply(MENU);
-    return;
-  }
+    if (connection === 'open') {
+      console.log('\n✅ Bot conectado e rodando 24/7!\n');
+    }
+  });
 
-  if (RESPOSTAS[texto]) {
-    await msg.reply(RESPOSTAS[texto]);
-    return;
-  }
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    const msg = messages[0];
+    if (!msg.message || msg.key.fromMe) return;
 
-  await msg.reply(`Não entendi sua mensagem. 😅\n\nDigite *oi* para ver o menu de opções do RH.`);
-});
+    // Ignora grupos
+    if (msg.key.remoteJid.includes('@g.us')) return;
 
-client.initialize();
+    const texto = (
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      ''
+    ).trim().toLowerCase();
+
+    const jid = msg.key.remoteJid;
+
+    if (abreMenu.includes(texto)) {
+      await sock.sendMessage(jid, { text: MENU });
+      return;
+    }
+
+    if (RESPOSTAS[texto]) {
+      await sock.sendMessage(jid, { text: RESPOSTAS[texto] });
+      return;
+    }
+
+    await sock.sendMessage(jid, {
+      text: 'Não entendi sua mensagem. 😅\n\nDigite *oi* para ver o menu de opções do RH.'
+    });
+  });
+}
+
+conectar();
