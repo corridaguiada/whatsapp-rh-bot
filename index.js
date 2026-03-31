@@ -104,7 +104,8 @@ async function conectar() {
 
   const sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
+    printQRInTerminal: false,
+    logger: require('pino')({ level: 'silent' }),
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -113,7 +114,9 @@ async function conectar() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('\n📱 Escaneie o QR code acima com seu WhatsApp!\n');
+      console.log('\n==== 📱 ESCANEIE O QR CODE ABAIXO COM SEU WHATSAPP ====\n');
+      qrcode.generate(qr, { small: true });
+      console.log('\n======================================================\n');
     }
 
     if (connection === 'close') {
@@ -122,7 +125,7 @@ async function conectar() {
         console.log('🔄 Reconectando...');
         conectar();
       } else {
-        console.log('❌ Desconectado. Delete a pasta auth_info e reinicie.');
+        console.log('❌ Desconectado. Reinicie o serviço no Railway.');
       }
     }
 
@@ -134,8 +137,6 @@ async function conectar() {
   sock.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
-
-    // Ignora grupos
     if (msg.key.remoteJid.includes('@g.us')) return;
 
     const texto = (
