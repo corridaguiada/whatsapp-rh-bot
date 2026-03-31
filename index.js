@@ -2,9 +2,11 @@ const makeWASocket = require('@whiskeysockets/baileys').default;
 const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs');
+const path = require('path');
 
 // ============================================================
-//  MENU E RESPOSTAS DE RH — edite aqui as suas perguntas!
+//  MENU E RESPOSTAS DE RH
 // ============================================================
 
 const MENU = `👋 Olá! Bem-vindo ao *RH da Empresa*.
@@ -94,13 +96,24 @@ _Digite 0 para voltar ao menu._`,
 };
 
 // ============================================================
-//  LÓGICA DO BOT — não precisa mexer aqui
+//  LÓGICA DO BOT
 // ============================================================
 
+const AUTH_FOLDER = 'auth_info';
 const abreMenu = ['oi', 'olá', 'ola', 'oi!', 'olá!', 'menu', 'ajuda', 'help', '0', 'inicio', 'início'];
 
-async function conectar() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+// Apaga sessão antiga para forçar novo QR code
+function limparSessao() {
+  if (fs.existsSync(AUTH_FOLDER)) {
+    fs.rmSync(AUTH_FOLDER, { recursive: true, force: true });
+    console.log('🗑️ Sessão antiga removida. Gerando novo QR code...\n');
+  }
+}
+
+async function conectar(primeiraVez = false) {
+  if (primeiraVez) limparSessao();
+
+  const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
 
   const sock = makeWASocket({
     auth: state,
@@ -114,18 +127,23 @@ async function conectar() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('\n==== 📱 ESCANEIE O QR CODE ABAIXO COM SEU WHATSAPP ====\n');
+      console.log('\n======================================================');
+      console.log('📱 ESCANEIE O QR CODE ABAIXO COM SEU WHATSAPP:');
+      console.log('======================================================\n');
       qrcode.generate(qr, { small: true });
       console.log('\n======================================================\n');
     }
 
     if (connection === 'close') {
-      const deveReconectar = new Boom(lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-      if (deveReconectar) {
-        console.log('🔄 Reconectando...');
-        conectar();
+      const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
+      const loggedOut = statusCode === DisconnectReason.loggedOut;
+
+      if (loggedOut) {
+        console.log('🔄 Sessão encerrada. Gerando novo QR code...');
+        conectar(true);
       } else {
-        console.log('❌ Desconectado. Reinicie o serviço no Railway.');
+        console.log('🔄 Conexão perdida. Reconectando...');
+        conectar(false);
       }
     }
 
@@ -163,4 +181,5 @@ async function conectar() {
   });
 }
 
-conectar();
+// Inicia sempre limpando sessão antiga
+conectar(true);
